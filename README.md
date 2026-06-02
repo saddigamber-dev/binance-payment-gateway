@@ -21,3 +21,4 @@ JWT_SECRET=your_secret
 DEBUG=False
 HOST=0.0.0.0
 PORT=10000
+```

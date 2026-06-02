@@ -15,7 +15,7 @@ class Order(Base):
     base_amount = Column(Float, nullable=False)
     unique_amount = Column(Float, nullable=False, index=True)
     currency = Column(String, default="USDT")
-    network = Column(String, default="TRX")
+    network = Column(String, default="BSC")
     status = Column(Enum(OrderStatus), default=OrderStatus.PENDING)
     client_ip = Column(String, index=True)
     deposit_address = Column(String)
