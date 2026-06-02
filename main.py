@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import asyncio
 import uuid
@@ -19,6 +20,16 @@ from app.tasks import process_orders
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Binance Payment Gateway API", debug=settings.DEBUG)
+
+# ✅ CORS Fix: Allows any website to fetch your API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 templates = Jinja2Templates(directory="templates")
 
 @app.on_event("startup")
@@ -35,14 +46,13 @@ async def create_order(order_req: OrderCreate, request: Request, db: Session = D
     client_ip = get_real_ip(request)
     now = datetime.utcnow()
     
-    # 1. Check if user already has an active pending order
+    # 1. Check if user already has an active pending order via IP fallback
     existing_order = db.query(Order).filter(
         Order.client_ip == client_ip,
         Order.status == OrderStatus.PENDING,
         Order.expires_at > now
     ).first()
     
-    # IF EXISTS: Return the SAME order to them with the QR code
     if existing_order:
         qr_base64 = generate_qr_base64(existing_order.deposit_address)
         return OrderResponse(
@@ -66,7 +76,7 @@ async def create_order(order_req: OrderCreate, request: Request, db: Session = D
         if not deposit_address:
             raise ValueError("Empty address returned by Binance")
     except Exception as e:
-        print(f"BINANCE API ERROR: {str(e)}") # This will show in Render Logs if Binance blocks it
+        print(f"BINANCE API ERROR: {str(e)}") 
         raise HTTPException(status_code=503, detail="Payment gateway temporarily unavailable. Check server logs.")
 
     # 4. Create New Order
@@ -112,7 +122,7 @@ async def get_order_status(order_id: str, db: Session = Depends(get_db)):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
-    # If the order is no longer active, wipe the QR and Address from the API response
+    # Restrict data exposure if the order is no longer PENDING
     if order.status != OrderStatus.PENDING:
         return OrderResponse(
             id=order.id,
@@ -120,14 +130,12 @@ async def get_order_status(order_id: str, db: Session = Depends(get_db)):
             currency=order.currency,
             network=order.network,
             status=order.status,
-            deposit_address="EXPIRED",
+            deposit_address="RESTRICTED",
             qr_code_base64="",
             expires_at=order.expires_at
         )
 
-    # Only generate and return the QR if it is still PENDING
     qr_base64 = generate_qr_base64(order.deposit_address)
-    
     return OrderResponse(
         id=order.id,
         unique_amount=order.unique_amount,
@@ -138,4 +146,3 @@ async def get_order_status(order_id: str, db: Session = Depends(get_db)):
         qr_code_base64=qr_base64,
         expires_at=order.expires_at
     )
-    
