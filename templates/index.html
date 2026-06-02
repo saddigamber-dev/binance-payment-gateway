@@ -42,6 +42,26 @@
 <script>
     let pollInterval;
 
+    // Check browser memory on page load
+    document.addEventListener("DOMContentLoaded", async () => {
+        const activeOrderId = localStorage.getItem('active_order_id');
+        if (activeOrderId) {
+            try {
+                const res = await fetch(`/api/orders/${activeOrderId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.status === "PENDING" && new Date(data.expires_at) > new Date()) {
+                        showPaymentScreen(data);
+                    } else {
+                        localStorage.removeItem('active_order_id');
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to restore session", err);
+            }
+        }
+    });
+
     async function createOrder() {
         const amount = document.getElementById('amount').value;
         const errorMsg = document.getElementById('error-msg');
@@ -63,18 +83,25 @@
             
             if (!res.ok) throw new Error(data.detail || "Error generating order");
 
-            document.getElementById('step1').classList.add('hidden');
-            document.getElementById('step2').classList.remove('hidden');
+            // Save order ID to browser memory
+            localStorage.setItem('active_order_id', data.id);
+            showPaymentScreen(data);
             
-            document.getElementById('exact-amount').innerText = data.unique_amount;
-            document.getElementById('qr-code').src = data.qr_code_base64;
-            document.getElementById('address-text').innerText = data.deposit_address;
-            
-            startTimer(new Date(data.expires_at));
-            pollStatus(data.id);
         } catch (err) {
             errorMsg.innerText = err.message;
         }
+    }
+
+    function showPaymentScreen(data) {
+        document.getElementById('step1').classList.add('hidden');
+        document.getElementById('step2').classList.remove('hidden');
+        
+        document.getElementById('exact-amount').innerText = data.unique_amount;
+        document.getElementById('qr-code').src = data.qr_code_base64;
+        document.getElementById('address-text').innerText = data.deposit_address;
+        
+        startTimer(new Date(data.expires_at));
+        pollStatus(data.id);
     }
 
     function startTimer(expireDate) {
@@ -88,6 +115,7 @@
                 document.getElementById('status').innerText = "EXPIRED";
                 document.getElementById('status').style.background = "#d9534f";
                 document.getElementById('status').style.color = "white";
+                localStorage.removeItem('active_order_id');
                 clearInterval(pollInterval);
             } else {
                 const m = Math.floor(diff / 60).toString().padStart(2, '0');
@@ -107,8 +135,10 @@
                 document.getElementById('status').style.background = "#5cb85c";
                 document.getElementById('status').style.color = "white";
                 document.getElementById('countdown').innerText = "Payment Complete";
+                localStorage.removeItem('active_order_id');
             } else if (data.status === "EXPIRED") {
                 clearInterval(pollInterval);
+                localStorage.removeItem('active_order_id');
             }
         }, 10000); // Check every 10 seconds
     }
