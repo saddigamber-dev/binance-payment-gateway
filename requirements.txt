@@ -10,6 +10,3 @@ passlib[bcrypt]
 httpx
 pydantic
 qrcode[pil]
-orjson
-gunicorn
-python-multipart
