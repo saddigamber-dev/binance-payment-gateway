@@ -10,12 +10,47 @@
         input, button { width: 100%; padding: 12px; margin: 10px 0; box-sizing: border-box; border-radius: 6px; border: 1px solid #ddd; }
         button { background: #f3ba2f; border: none; color: black; font-weight: bold; cursor: pointer; font-size: 16px; }
         button:hover { background: #e0a800; }
-        .hidden { display: none; }
-        .qr-img { width: 200px; height: 200px; margin: 15px auto; }
+        .hidden { display: none !important; }
+        .qr-img { width: 200px; height: 200px; margin: 15px auto; display: block; }
         .timer { font-size: 1.5em; color: #d9534f; font-weight: bold; }
-        .copy-addr { font-size: 0.8em; background: #eee; padding: 10px; word-break: break-all; border-radius: 4px;}
+        .copy-addr { font-size: 0.8em; background: #eee; padding: 10px; word-break: break-all; border-radius: 4px; font-family: monospace;}
         .status-badge { display: inline-block; padding: 5px 10px; border-radius: 4px; font-weight: bold; margin-top: 10px;}
         .network-badge { background: #eee; padding: 8px; border-radius: 4px; margin-bottom: 15px; font-weight: bold; color: #555; }
+        
+        /* 🔴 EXPIRED ANIMATION CSS */
+        .expired-anim-container {
+            height: 200px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 15px auto;
+        }
+        .expired-stamp {
+            width: 140px;
+            height: 140px;
+            border: 6px solid #d9534f;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #d9534f;
+            font-size: 24px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            transform: rotate(-15deg);
+            /* Bounces in like a stamp, then pulses forever */
+            animation: stampIn 0.4s cubic-bezier(0.25, 1.5, 0.5, 1) forwards, pulseRed 2s infinite 0.5s;
+        }
+        
+        @keyframes stampIn {
+            0% { opacity: 0; transform: scale(2.5) rotate(-15deg); }
+            100% { opacity: 1; transform: scale(1) rotate(-15deg); }
+        }
+        @keyframes pulseRed {
+            0% { box-shadow: 0 0 0 0 rgba(217, 83, 79, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(217, 83, 79, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(217, 83, 79, 0); }
+        }
     </style>
 </head>
 <body>
@@ -33,7 +68,12 @@
     <p>Please send exactly:</p>
     <h1 id="exact-amount">0.00</h1>
     <p id="currency-label" style="font-weight: bold; color: #555;">USDT (BEP20)</p>
+    
     <img id="qr-code" class="qr-img" src="" alt="QR Code">
+    <div id="expired-wrapper" class="expired-anim-container hidden">
+        <div class="expired-stamp">EXPIRED</div>
+    </div>
+
     <p class="copy-addr" id="address-text"></p>
     <p>Time remaining: <span class="timer" id="countdown">20:00</span></p>
     <div id="status" class="status-badge" style="background:#ffc107; color:#000;">PENDING</div>
@@ -42,7 +82,6 @@
 <script>
     let pollInterval;
 
-    // Check browser memory on page load
     document.addEventListener("DOMContentLoaded", async () => {
         const activeOrderId = localStorage.getItem('active_order_id');
         if (activeOrderId) {
@@ -83,8 +122,12 @@
             
             if (!res.ok) throw new Error(data.detail || "Error generating order");
 
-            // Save order ID to browser memory
             localStorage.setItem('active_order_id', data.id);
+            
+            // Reset UI states in case they try again after an expiry
+            document.getElementById('qr-code').classList.remove('hidden');
+            document.getElementById('expired-wrapper').classList.add('hidden');
+            
             showPaymentScreen(data);
             
         } catch (err) {
@@ -104,6 +147,22 @@
         pollStatus(data.id);
     }
 
+    function triggerExpiredUI() {
+        // Hide QR Code and show the Stamp Animation
+        document.getElementById('qr-code').classList.add('hidden');
+        document.getElementById('expired-wrapper').classList.remove('hidden');
+        
+        // Update texts
+        document.getElementById('countdown').innerText = "EXPIRED";
+        document.getElementById('status').innerText = "EXPIRED";
+        document.getElementById('status').style.background = "#d9534f";
+        document.getElementById('status').style.color = "white";
+        document.getElementById('address-text').innerText = "RESTRICTED";
+        
+        localStorage.removeItem('active_order_id');
+        clearInterval(pollInterval);
+    }
+
     function startTimer(expireDate) {
         const countdownEl = document.getElementById('countdown');
         const timer = setInterval(() => {
@@ -111,12 +170,7 @@
             const diff = Math.floor((expireDate - now) / 1000);
             if (diff <= 0) {
                 clearInterval(timer);
-                countdownEl.innerText = "EXPIRED";
-                document.getElementById('status').innerText = "EXPIRED";
-                document.getElementById('status').style.background = "#d9534f";
-                document.getElementById('status').style.color = "white";
-                localStorage.removeItem('active_order_id');
-                clearInterval(pollInterval);
+                triggerExpiredUI();
             } else {
                 const m = Math.floor(diff / 60).toString().padStart(2, '0');
                 const s = (diff % 60).toString().padStart(2, '0');
@@ -135,12 +189,12 @@
                 document.getElementById('status').style.background = "#5cb85c";
                 document.getElementById('status').style.color = "white";
                 document.getElementById('countdown').innerText = "Payment Complete";
+                document.getElementById('qr-code').classList.add('hidden'); // Optional: hide QR on success too
                 localStorage.removeItem('active_order_id');
             } else if (data.status === "EXPIRED") {
-                clearInterval(pollInterval);
-                localStorage.removeItem('active_order_id');
+                triggerExpiredUI();
             }
-        }, 10000); // Check every 10 seconds
+        }, 10000); 
     }
 </script>
 
