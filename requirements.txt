@@ -2,11 +2,11 @@ fastapi
 uvicorn[standard]
 sqlalchemy
 psycopg2-binary
-alembic
 python-dotenv
 python-binance
 python-jose[cryptography]
-passlib[bcrypt]
 httpx
+orjson
 pydantic
+gunicorn
 qrcode[pil]
