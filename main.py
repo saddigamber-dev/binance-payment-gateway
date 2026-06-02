@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -8,11 +9,13 @@ from dotenv import load_dotenv
 from binance.client import Client
 import httpx
 from datetime import datetime, timedelta
-from fastapi.responses import JSONResponse
+import qrcode
+from io import BytesIO
+import base64
 
 load_dotenv()
 
-app = FastAPI(title="Binance Payment Gateway - V5 Fixed")
+app = FastAPI(title="Binance Payment Gateway - Final V6")
 
 client = Client(os.getenv("BINANCE_API_KEY"), os.getenv("BINANCE_API_SECRET"))
 
@@ -66,6 +69,7 @@ def get_db():
 def get_client_ip(request: Request):
     return request.headers.get("X-Forwarded-For") or request.client.host
 
+# ==================== RATE LIMITING ====================
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     if request.url.path == "/create-order":
@@ -78,61 +82,69 @@ async def rate_limit_middleware(request: Request, call_next):
         ).count()
         db.close()
         if count >= 5:
-            return JSONResponse(status_code=429, content={"error": "Rate limit: Max 5 orders/10min"})
+            return JSONResponse(status_code=429, content={"error": "Too many requests. Max 5 orders per 10 minutes."})
     return await call_next(request)
+
+# ==================== FRONTEND ====================
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    html = """
+    <html>
+    <head><title>Binance Payment Gateway</title>
+    <style>body{font-family:Arial;background:#0f0f0f;color:white;text-align:center;padding:50px;}</style>
+    </head>
+    <body>
+        <h1>🔥 Binance Payment Gateway</h1>
+        <p>Custom Domain: binance.digamber.in</p>
+        <h3>Create Order</h3>
+        <form action="/create-order" method="post">
+            <input type="number" name="amount" placeholder="Amount" value="10" required><br><br>
+            <button type="submit">Create Payment Order</button>
+        </form>
+    </body>
+    </html>
+    """
+    return html
 
 @app.post("/create-order")
 async def create_order(amount: float, coin: str = "USDT", network: str = "BEP20", request: Request = None, db=Depends(get_db)):
+    ip = get_client_ip(request)
+    order_id = f"ORDER_{int(datetime.utcnow().timestamp())}"
+    expires_at = datetime.utcnow() + timedelta(minutes=20)
+
+    wallet_address = "0xError_Fetching_Address"
     try:
-        ip = get_client_ip(request)
-        order_id = f"ORDER_{int(datetime.utcnow().timestamp())}"
-        expires_at = datetime.utcnow() + timedelta(minutes=20)
-
-        wallet_address = "0xTemp_Wallet_Address_Please_Use_Real"
-
-        try:
-            # Fixed Network Mapping
-            api_network = network
-            if network.upper() == "BEP20":
-                api_network = "BSC"
-
-            deposit_info = client.get_deposit_address(coin=coin, network=api_network)
-            wallet_address = deposit_info.get('address')
-            await send_telegram(f"✅ Real Address Fetched Successfully for {coin} on {network}")
-        except Exception as e:
-            await send_telegram(f"⚠️ Binance Address Fetch Failed: {str(e)[:150]}")
-
-        order = PaymentOrder(
-            order_id=order_id,
-            amount=amount,
-            coin=coin,
-            network=network,
-            wallet_address=wallet_address,
-            status="pending",
-            ip_address=ip,
-            expires_at=expires_at
-        )
-        
-        db.add(order)
-        db.commit()
-        db.refresh(order)
-
-        await send_telegram(f"🆕 New Order Created\nID: {order_id}\nAmount: {amount} {coin}\nNetwork: {network}\nAddress: {wallet_address[:25]}...")
-
-        return {
-            "success": True,
-            "order_id": order_id,
-            "amount": amount,
-            "coin": coin,
-            "network": network,
-            "wallet_address": wallet_address,
-            "expires_at": expires_at.isoformat(),
-            "status": "pending"
-        }
-
+        api_network = "BSC" if network.upper() == "BEP20" else network
+        deposit_info = client.get_deposit_address(coin=coin, network=api_network)
+        wallet_address = deposit_info.get('address')
     except Exception as e:
-        await send_telegram(f"❌ Critical Error: {str(e)}")
-        raise HTTPException(500, "Internal Server Error")
+        await send_telegram(f"Address Fetch Failed: {str(e)[:100]}")
+
+    order = PaymentOrder(
+        order_id=order_id,
+        amount=amount,
+        coin=coin,
+        network=network,
+        wallet_address=wallet_address,
+        ip_address=ip,
+        expires_at=expires_at
+    )
+    
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+
+    await send_telegram(f"New Order: {amount} {coin} | ID: {order_id} | IP: {ip}")
+
+    return {
+        "success": True,
+        "order_id": order_id,
+        "amount": amount,
+        "wallet_address": wallet_address,
+        "network": network,
+        "expires_at": expires_at.isoformat(),
+        "status": "pending"
+    }
 
 @app.get("/status/{order_id}")
 async def get_status(order_id: str, db=Depends(get_db)):
@@ -144,19 +156,7 @@ async def get_status(order_id: str, db=Depends(get_db)):
         order.status = "expired"
         db.commit()
     
-    return {
-        "order_id": order.order_id,
-        "amount": order.amount,
-        "coin": order.coin,
-        "network": order.network,
-        "wallet_address": order.wallet_address,
-        "status": order.status,
-        "expires_at": order.expires_at.isoformat()
-    }
-
-@app.get("/")
-async def home():
-    return {"message": "Binance Payment Gateway V5 Live 🔥 | BEP20 Fixed"}
+    return order
 
 if __name__ == "__main__":
     import uvicorn
