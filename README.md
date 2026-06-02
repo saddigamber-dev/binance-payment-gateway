@@ -55,7 +55,7 @@ Add this HTML snippet anywhere on your site:
 
     <div class="iframe-box">
         <iframe 
-            src="https://binance.digamber.in/" 
+            src="https://binance.digamber.in/"
             width="100%" 
             height="550px" 
             style="border: none;">
@@ -106,3 +106,55 @@ async function generateCustomCryptoPayment(cartTotal) {
 // Call the function with the amount to charge
 // generateCustomCryptoPayment(15);
 ```
+### Method 3: Discord / Telegram Bot Integration (100% Hacker-Proof)
+**Best for:** Selling digital roles, VIP access, or game items directly inside a chat platform. 
+
+Because bots use Server-to-Server (S2S) communication, this method is completely immune to client-side manipulation (like Burp Suite). The user cannot fake a success response because the verification happens entirely on your backend.
+
+**Example Flow (Python `discord.py` & `aiohttp`):**
+1. User types `!buy_vip`.
+2. Bot silently POSTs to your Gateway API to generate a unique payment.
+3. Bot displays the exact amount and address in the chat via an Embed.
+4. Bot checks the Gateway API every 10 seconds. Upon a `CONFIRMED` status, it delivers the digital good.
+
+```python
+import discord
+from discord.ext import commands
+import aiohttp
+import asyncio
+
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+GATEWAY_URL = "[https://binance.digamber.in/api/orders](https://binance.digamber.in/api/orders)"
+
+@bot.command()
+async def buy_vip(ctx):
+    await ctx.send("🔄 Generating secure invoice...")
+
+    # 1. Generate Order Server-to-Server
+    async with aiohttp.ClientSession() as session:
+        payload = {"amount": 5.0, "currency": "USDT", "network": "BSC"}
+        async with session.post(GATEWAY_URL, json=payload) as res:
+            order = await res.json()
+            
+    order_id = order["id"]
+    
+    # 2. Display invoice to the user
+    embed = discord.Embed(title="💎 VIP Access", color=discord.Color.gold())
+    embed.add_field(name="Amount", value=f"**{order['unique_amount']} USDT (BEP20)**", inline=False)
+    embed.add_field(name="Address", value=f"`{order['deposit_address']}`", inline=False)
+    embed.set_footer(text=f"ID: {order_id} | Expires in 20 mins")
+    await ctx.send(embed=embed)
+    
+    # 3. Securely poll for confirmation
+    async with aiohttp.ClientSession() as session:
+        for _ in range(120): # Check every 10 seconds for 20 minutes
+            await asyncio.sleep(10)
+            async with session.get(f"{GATEWAY_URL}/{order_id}") as check_res:
+                status_data = await check_res.json()
+                
+                if status_data["status"] == "CONFIRMED":
+                    await ctx.send(f"✅ Payment Success, {ctx.author.mention}! Your VIP role has been added.")
+                    return
+                elif status_data["status"] == "EXPIRED":
+                    await ctx.send(f"⏳ {ctx.author.mention}, your order `{order_id}` has expired.")
+                    API
