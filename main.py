@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 
 load_dotenv()
 
-app = FastAPI(title="Binance Payment Gateway - V3")
+app = FastAPI(title="Binance Payment Gateway - V4 Fixed")
 
 # Binance Client
 client = Client(os.getenv("BINANCE_API_KEY"), os.getenv("BINANCE_API_SECRET"))
@@ -68,7 +68,6 @@ def get_db():
 def get_client_ip(request: Request):
     return request.headers.get("X-Forwarded-For") or request.client.host
 
-# Rate Limiting Middleware
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     if request.url.path == "/create-order":
@@ -81,7 +80,7 @@ async def rate_limit_middleware(request: Request, call_next):
         ).count()
         db.close()
         if count >= 5:
-            return JSONResponse(status_code=429, content={"error": "Rate limit: Max 5 orders per 10 min"})
+            return JSONResponse(status_code=429, content={"error": "Rate limit: Max 5 orders/10min"})
     return await call_next(request)
 
 @app.post("/create-order")
@@ -91,13 +90,14 @@ async def create_order(amount: float, coin: str = "USDT", network: str = "BEP20"
         order_id = f"ORDER_{int(datetime.utcnow().timestamp())}"
         expires_at = datetime.utcnow() + timedelta(minutes=20)
 
-        # Real Deposit Address
-        wallet_address = "0xError_Fetching_Address_Try_Again"
+        wallet_address = "0xError_Fetching_Address"
+
         try:
             deposit_info = client.get_deposit_address(coin=coin, network=network)
-            wallet_address = deposit_info.get('address', wallet_address)
-        except Exception as binance_err:
-            await send_telegram(f"Binance Address Error: {str(binance_err)}")
+            wallet_address = deposit_info.get('address')
+            await send_telegram(f"✅ Real Address Fetched for {coin}-{network}")
+        except Exception as e:
+            await send_telegram(f"⚠️ Binance Address Fetch Failed: {str(e)[:100]}")
 
         order = PaymentOrder(
             order_id=order_id,
@@ -114,7 +114,7 @@ async def create_order(amount: float, coin: str = "USDT", network: str = "BEP20"
         db.commit()
         db.refresh(order)
 
-        await send_telegram(f"✅ New Order\nID: {order_id}\nAmount: {amount} {coin}\nNetwork: {network}\nAddress: {wallet_address[:20]}...")
+        await send_telegram(f"🆕 New Order\nID: {order_id}\nAmount: {amount} {coin}\nAddress: {wallet_address[:30]}...")
 
         return {
             "success": True,
@@ -128,8 +128,8 @@ async def create_order(amount: float, coin: str = "USDT", network: str = "BEP20"
         }
 
     except Exception as e:
-        await send_telegram(f"❌ Critical Error in create-order: {str(e)}")
-        raise HTTPException(500, f"Server Error: {str(e)}")
+        await send_telegram(f"❌ Critical Error: {str(e)}")
+        raise HTTPException(500, "Internal Server Error")
 
 @app.get("/status/{order_id}")
 async def get_status(order_id: str, db=Depends(get_db)):
@@ -141,17 +141,11 @@ async def get_status(order_id: str, db=Depends(get_db)):
         order.status = "expired"
         db.commit()
     
-    return {
-        "order_id": order.order_id,
-        "amount": order.amount,
-        "wallet_address": order.wallet_address,
-        "status": order.status,
-        "expires_at": order.expires_at.isoformat()
-    }
+    return order
 
 @app.get("/")
 async def home():
-    return {"message": "Binance Payment Gateway V3 Live 🔥 | Fixed Error Handling"}
+    return {"message": "Binance Payment Gateway V4 Live 🔥"}
 
 if __name__ == "__main__":
     import uvicorn
