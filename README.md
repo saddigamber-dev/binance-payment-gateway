@@ -1,6 +1,6 @@
 # Binance Payment Gateway
 
-A production-level personal cryptocurrency payment gateway leveraging FastAPI, PostgreSQL, and Binance API.
+-# A production-level personal cryptocurrency payment gateway leveraging FastAPI, PostgreSQL, and Binance API.
 
 ## Features
 - Strict 20-minute expiry windows with active background cleanup.
@@ -21,74 +21,30 @@ JWT_SECRET=your_secret
 DEBUG=False
 HOST=0.0.0.0
 PORT=10000
+
 ```
-
-💻 Integration Guide
-You can integrate this gateway into your main websites using either of the two methods below.
-
-Method 1: Easy Iframe Embed (Recommended for Quick Setup)
-The simplest way to use the gateway. This embeds the full UI (including the amount input, QR code generator, and expiration animations) directly into your website.
-Add this HTML snippet anywhere on your site:
-```
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Simple Store</title>
-    <style>
-        body { font-family: Arial, sans-serif; background-color: #f4f7f6; text-align: center; padding: 50px; }
-        .iframe-box { 
-            max-width: 400px; 
-            margin: 0 auto; 
-            border: 4px solid #333; 
-            border-radius: 15px; 
-            overflow: hidden; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-    </style>
-</head>
-<body>
-
-    <h1>Buy Premium Membership - $10</h1>
-    <p>Complete your payment in the secure box below:</p>
-
-    <div class="iframe-box">
-        <iframe 
-            src="https://binance.digamber.in/"
-            width="100%" 
-            height="550px" 
-            style="asyncon: none;">
-        </iframe>
-    </div>
-
-</body>
-</html>
-```
-
-Method 2: Direct API Integration (For Custom UIs)
-If you want to build your own custom frontend and completely hide the fact that a 3rd party gateway is being used, you can fetch the API directly. CORS is fully enabled.
-Use this JavaScript example in your frontend to generate a payment:
+## 💻 Integration Guide
+You can integrate this gateway into your main websites or bots using either of the two professional methods below. Both methods ensure that payment verification happens securely on your backend, preventing client-side manipulation (like Burp Suite).
+### Method 1: Direct API Integration (For Custom UIs)
+If you want to build your own custom frontend and completely hide the fact that a 3rd party gateway is being used, you can fetch the API directly.
+Below is an example of a secure integration using a **Python (Flask) Backend** and an **HTML/JS Frontend**.
+#### 1. The Backend (app.py)
+This script securely calls the Gateway and checks payment status.
 ```python
 from flask import Flask, render_template, request, jsonify, session
 import requests
-import uuid
-from datetime import datetime
-import hashlib
-import hmac
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'
 
 # Configuration
-BINANCE_GATEWAY_URL = "https://binance.digamber.in"
+BINANCE_GATEWAY_URL = "[https://binance.digamber.in](https://binance.digamber.in)"
 USD_TO_INR = 98
 CREDIT_RATE = 0.5
 
 @app.route('/crypto-payment')
 def crypto_payment():
     """Show payment page"""
-    # In production, get from session
     session['username'] = 'test_user'
     session['credits'] = 1000
     
@@ -104,12 +60,10 @@ def create_order():
         data = request.get_json()
         amount = data.get('amount')
         
-        # Validate amount
         allowed_amounts = [10, 20, 30, 50, 100]
         if amount not in allowed_amounts:
             return jsonify({'success': False, 'error': 'Invalid amount'}), 400
         
-        # Call your gateway
         headers = {
             'Content-Type': 'application/json',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -130,13 +84,10 @@ def create_order():
         
         if response.status_code == 200:
             order_data = response.json()
-            
-            # Store in database (example)
             order_id = order_data.get('id')
             credits = amount * USD_TO_INR * CREDIT_RATE
             
-            # TODO: Save to your database
-            # db.save_payment(session['username'], order_id, amount, credits)
+            # TODO: Save order_id and credits to your database as PENDING
             
             return jsonify({
                 'success': True,
@@ -154,10 +105,10 @@ def create_order():
 
 @app.route('/api/check-order/<order_id>', methods=['GET'])
 def check_order(order_id):
-    """Check payment status"""
+    """Check payment status securely on the server"""
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
         }
         
         response = requests.get(
@@ -170,16 +121,14 @@ def check_order(order_id):
             order_data = response.json()
             status = order_data.get('status', 'PENDING')
             
-            # If payment completed, credit user
-            if status.upper() == 'COMPLETED':
-                # TODO: Update user credits in database
-                # db.update_credits(session['username'], credits)
+            if status.upper() == 'CONFIRMED':
+                # TODO: Update user credits in database (Delivery)
                 pass
             
             return jsonify({
                 'success': True,
                 'status': status.lower(),
-                'is_completed': status.upper() == 'COMPLETED'
+                'is_completed': status.upper() == 'CONFIRMED'
             })
         else:
             return jsonify({'success': True, 'status': 'pending'})
@@ -189,8 +138,10 @@ def check_order(order_id):
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
-```
 
+```
+#### 2. The Frontend (templates/crypto_payment.html)
+This is a sleek, modern UI that interacts with your Flask backend.
 ```html
 <!DOCTYPE html>
 <html lang="en">
@@ -199,170 +150,34 @@ if __name__ == '__main__':
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crypto Payment Integration</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        .container {
-            max-width: 500px;
-            margin: 0 auto;
-        }
-        .card {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            overflow: hidden;
-        }
-        .header {
-            background: linear-gradient(135deg, #f0b90b, #d4a00a);
-            padding: 20px;
-            text-align: center;
-        }
-        .header h1 {
-            color: #000;
-            font-size: 1.5rem;
-        }
-        .balance {
-            background: #f8f9fa;
-            padding: 15px;
-            text-align: center;
-            border-bottom: 1px solid #eee;
-        }
-        .balance span {
-            font-weight: bold;
-            color: #f0b90b;
-            font-size: 1.2rem;
-        }
-        .section {
-            padding: 20px;
-        }
-        .title {
-            font-weight: bold;
-            margin-bottom: 15px;
-            color: #333;
-        }
-        .amount-buttons {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-        .amount-btn {
-            background: white;
-            border: 2px solid #e0e0e0;
-            border-radius: 12px;
-            padding: 12px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-align: center;
-        }
-        .amount-btn:hover {
-            border-color: #f0b90b;
-            background: #fff8e7;
-        }
-        .amount-btn.selected {
-            border-color: #f0b90b;
-            background: #f0b90b;
-        }
-        .price {
-            font-size: 1.2rem;
-            font-weight: bold;
-        }
-        .credits {
-            font-size: 0.7rem;
-            color: #666;
-        }
-        .amount-btn.selected .credits {
-            color: #000;
-        }
-        .proceed-btn {
-            width: 100%;
-            padding: 14px;
-            background: linear-gradient(135deg, #f0b90b, #d4a00a);
-            border: none;
-            border-radius: 12px;
-            font-weight: bold;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-        .proceed-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .proceed-btn:not(:disabled):hover {
-            transform: translateY(-2px);
-        }
-        .iframe-container {
-            padding: 20px;
-            background: white;
-        }
-        .payment-iframe {
-            width: 100%;
-            height: 550px;
-            border: none;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        }
-        .loading {
-            text-align: center;
-            padding: 40px;
-        }
-        .spinner {
-            width: 50px;
-            height: 50px;
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #f0b90b;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 15px;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .back-btn {
-            width: 100%;
-            padding: 12px;
-            background: #f0f0f0;
-            border: none;
-            border-radius: 12px;
-            margin-top: 15px;
-            cursor: pointer;
-        }
-        .hidden {
-            display: none;
-        }
-        .note {
-            font-size: 0.7rem;
-            color: #888;
-            text-align: center;
-            padding: 15px;
-            border-top: 1px solid #eee;
-        }
-        .error {
-            background: #fee;
-            color: #c00;
-            padding: 10px;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            text-align: center;
-        }
-        .success {
-            background: #efe;
-            color: #0a0;
-            padding: 10px;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            text-align: center;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
+        .container { max-width: 500px; margin: 0 auto; }
+        .card { background: white; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden; }
+        .header { background: linear-gradient(135deg, #f0b90b, #d4a00a); padding: 20px; text-align: center; }
+        .header h1 { color: #000; font-size: 1.5rem; }
+        .balance { background: #f8f9fa; padding: 15px; text-align: center; border-bottom: 1px solid #eee; }
+        .balance span { font-weight: bold; color: #f0b90b; font-size: 1.2rem; }
+        .section { padding: 20px; }
+        .title { font-weight: bold; margin-bottom: 15px; color: #333; }
+        .amount-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+        .amount-btn { background: white; border: 2px solid #e0e0e0; border-radius: 12px; padding: 12px; cursor: pointer; transition: all 0.3s ease; text-align: center; }
+        .amount-btn:hover { border-color: #f0b90b; background: #fff8e7; }
+        .amount-btn.selected { border-color: #f0b90b; background: #f0b90b; }
+        .price { font-size: 1.2rem; font-weight: bold; }
+        .credits { font-size: 0.7rem; color: #666; }
+        .amount-btn.selected .credits { color: #000; }
+        .proceed-btn { width: 100%; padding: 14px; background: linear-gradient(135deg, #f0b90b, #d4a00a); border: none; border-radius: 12px; font-weight: bold; font-size: 1rem; cursor: pointer; transition: transform 0.2s; }
+        .proceed-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .proceed-btn:not(:disabled):hover { transform: translateY(-2px); }
+        .iframe-container { padding: 20px; background: white; }
+        .payment-iframe { width: 100%; height: 550px; border: none; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .loading { text-align: center; padding: 40px; }
+        .spinner { width: 50px; height: 50px; border: 4px solid #f3f3f3; border-top: 4px solid #f0b90b; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .back-btn { width: 100%; padding: 12px; background: #f0f0f0; border: none; border-radius: 12px; margin-top: 15px; cursor: pointer; }
+        .hidden { display: none; }
+        .note { font-size: 0.7rem; color: #888; text-align: center; padding: 15px; border-top: 1px solid #eee; }
     </style>
 </head>
 <body>
@@ -377,7 +192,6 @@ if __name__ == '__main__':
                 💳 Your Balance: <span id="user-credits">{{ session.credits }}</span> Credits
             </div>
 
-            <!-- Step 1: Select Amount -->
             <div id="step-select">
                 <div class="section">
                     <div class="title">👇 Select Amount</div>
@@ -390,18 +204,6 @@ if __name__ == '__main__':
                             <div class="price">$20</div>
                             <div class="credits">≈ {{ (20 * usd_to_inr * credit_rate)|round(1) }} Credits</div>
                         </button>
-                        <button class="amount-btn" data-amount="30">
-                            <div class="price">$30</div>
-                            <div class="credits">≈ {{ (30 * usd_to_inr * credit_rate)|round(1) }} Credits</div>
-                        </button>
-                        <button class="amount-btn" data-amount="50">
-                            <div class="price">$50</div>
-                            <div class="credits">≈ {{ (50 * usd_to_inr * credit_rate)|round(1) }} Credits</div>
-                        </button>
-                        <button class="amount-btn" data-amount="100">
-                            <div class="price">$100</div>
-                            <div class="credits">≈ {{ (100 * usd_to_inr * credit_rate)|round(1) }} Credits</div>
-                        </button>
                     </div>
                     <button id="proceed-btn" class="proceed-btn" disabled>
                         ➡ Proceed to Payment
@@ -409,7 +211,6 @@ if __name__ == '__main__':
                 </div>
             </div>
 
-            <!-- Step 2: Loading -->
             <div id="step-loading" class="hidden">
                 <div class="loading">
                     <div class="spinner"></div>
@@ -417,7 +218,6 @@ if __name__ == '__main__':
                 </div>
             </div>
 
-            <!-- Step 3: Payment Iframe -->
             <div id="step-payment" class="hidden">
                 <div class="iframe-container">
                     <iframe id="payment-iframe" class="payment-iframe" src=""></iframe>
@@ -436,7 +236,6 @@ if __name__ == '__main__':
         let currentOrderId = null;
         let checkInterval = null;
 
-        // Amount selection
         document.querySelectorAll('.amount-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 document.querySelectorAll('.amount-btn').forEach(b => b.classList.remove('selected'));
@@ -446,11 +245,9 @@ if __name__ == '__main__':
             });
         });
 
-        // Proceed to payment - Create order via backend API
         document.getElementById('proceed-btn').addEventListener('click', async () => {
             if (!selectedAmount) return;
 
-            // Show loading
             document.getElementById('step-select').classList.add('hidden');
             document.getElementById('step-loading').classList.remove('hidden');
 
@@ -465,16 +262,12 @@ if __name__ == '__main__':
 
                 if (data.success) {
                     currentOrderId = data.order_id;
-                    
-                    // Set iframe src with amount
                     const iframe = document.getElementById('payment-iframe');
                     iframe.src = `https://binance.digamber.in/?amount=${selectedAmount}&order_id=${currentOrderId}`;
                     
-                    // Show iframe
                     document.getElementById('step-loading').classList.add('hidden');
                     document.getElementById('step-payment').classList.remove('hidden');
                     
-                    // Start checking payment status
                     startPaymentCheck();
                 } else {
                     throw new Error(data.error || 'Failed to create order');
@@ -486,7 +279,6 @@ if __name__ == '__main__':
             }
         });
 
-        // Check payment status periodically
         function startPaymentCheck() {
             if (checkInterval) clearInterval(checkInterval);
             
@@ -499,15 +291,12 @@ if __name__ == '__main__':
                         clearInterval(checkInterval);
                         alert('✅ Payment Successful! Credits added to your account.');
                         
-                        // Update balance display
                         const balanceSpan = document.getElementById('user-credits');
                         const currentBalance = parseInt(balanceSpan.innerText);
                         const earnedCredits = document.querySelector('.amount-btn.selected .credits').innerText.match(/\d+/)[0];
                         balanceSpan.innerText = currentBalance + parseInt(earnedCredits);
                         
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 2000);
+                        setTimeout(() => { window.location.reload(); }, 2000);
                     }
                 } catch (error) {
                     console.error('Status check error:', error);
@@ -515,41 +304,28 @@ if __name__ == '__main__':
             }, 5000);
         }
 
-        // Back button
         document.getElementById('back-btn').addEventListener('click', () => {
             if (checkInterval) clearInterval(checkInterval);
             document.getElementById('step-payment').classList.add('hidden');
             document.getElementById('step-select').classList.remove('hidden');
         });
-
-        // Listen for messages from iframe
-        window.addEventListener('message', function(event) {
-            if (event.origin !== 'https://binance.digamber.in') return;
-            
-            if (event.data?.type === 'payment_success') {
-                clearInterval(checkInterval);
-                alert('✅ Payment Successful!');
-                setTimeout(() => window.location.reload(), 2000);
-            }
-        });
     </script>
 </body>
 </html>
+
 ```
-
-### Method 3: Discord / Telegram Bot Integration (100% Hacker-Proof)
-**Best for:** Selling digital roles, VIP access, or game items directly inside a chat platform. 
-
+### Method 2: Discord / Telegram Bot Integration (100% Hacker-Proof)
+**Best for:** Selling digital roles, VIP access, or game items directly inside a chat platform.
 Because bots use Server-to-Server (S2S) communication, this method is completely immune to client-side manipulation (like Burp Suite). The user cannot fake a success response because the verification happens entirely on your backend.
-
-**Example Flow (Python `discord.py` & `aiohttp`):**
-1. User types `!buy_vip`.
-2. Bot silently POSTs to your Gateway API to generate a unique payment.
-3. Bot displays the exact amount and address in the chat via an Embed.
-4. Bot checks the Gateway API every 10 seconds. Upon a `CONFIRMED` status, it delivers the digital good.
-
-```pyhton
-import ddiscordfrom discord.ext import ccommandsimport aiohttp
+**Example Flow (Python discord.py & aiohttp):**
+ 1. User types !buy_vip.
+ 2. Bot silently POSTs to your Gateway API to generate a unique payment.
+ 3. Bot displays the exact amount and address in the chat via an Embed.
+ 4. Bot checks the Gateway API every 10 seconds. Upon a CONFIRMED status, it securely delivers the digital good.
+```python
+import discord
+from discord.ext import commands
+import aiohttp
 import asyncio
 
 bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
