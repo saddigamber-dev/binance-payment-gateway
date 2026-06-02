@@ -24,7 +24,7 @@ PORT=10000
 
 ```
 ## 💻 Integration Guide
-You can integrate this gateway into your main websites or bots using either of the two professional methods below. Both methods ensure that payment verification happens securely on your backend, preventing client-side manipulation (like Burp Suite).
+> wantntcan integrate this gateway into your main websites or bots using either of the two professional methods below. Both methods ensure that payment verification happens securely on your backend, preventing client-side manipulation (like Burp Suite).
 ### Method 1: Direct API Integration (For Custom UIs)
 If you want to build your own custom frontend and completely hide the fact that a 3rd party gateway is being used, you can fetch the API directly.
 Below is an example of a secure integration using a **Python (Flask) Backend** and an **HTML/JS Frontend**.
