@@ -28,7 +28,9 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    #changes is here
+    return templates.TemplateResponse(request=request, name="index.html")
+    
 
 @app.post("/api/orders", response_model=OrderResponse)
 async def create_order(order_req: OrderCreate, request: Request, db: Session = Depends(get_db)):
