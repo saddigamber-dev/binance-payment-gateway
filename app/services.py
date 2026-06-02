@@ -16,13 +16,14 @@ class BinanceService:
             hashlib.sha256
         ).hexdigest()
 
-    @classmethod
+        @classmethod
     async def get_deposit_address(cls, coin: str, network: str) -> str:
         endpoint = "/sapi/v1/capital/deposit/address"
         params = {
             "coin": coin,
             "network": network,
-            "timestamp": int(time.time() * 1000)
+            "timestamp": int(time.time() * 1000),
+            "recvWindow": 5000  # Added to prevent strict timestamp rejections
         }
         query_string = urlencode(params)
         signature = cls._get_signature(query_string)
@@ -30,9 +31,15 @@ class BinanceService:
         headers = {"X-MBX-APIKEY": settings.BINANCE_API_KEY}
         async with httpx.AsyncClient() as client:
             response = await client.get(f"{cls.BASE_URL}{endpoint}?{query_string}&signature={signature}", headers=headers)
+            
+            # This is the magic block that will reveal Binance's exact error message
+            if response.status_code >= 400:
+                print(f"🚨 BINANCE EXACT ERROR JSON: {response.text}")
+                
             response.raise_for_status()
             data = response.json()
             return data.get("address", "")
+
 
     @classmethod
     async def check_recent_deposits(cls, coin: str, start_time_ms: int):
