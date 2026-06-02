@@ -30,15 +30,40 @@ Method 1: Easy Iframe Embed (Recommended for Quick Setup)
 The simplest way to use the gateway. This embeds the full UI (including the amount input, QR code generator, and expiration animations) directly into your website.
 Add this HTML snippet anywhere on your site:
 ```
-<div class="crypto-checkout-container">
-    <iframe 
-        src="[https://binance.digamber.in/](https://binance.digamber.in/)" 
-        width="100%" 
-        height="550px" 
-        style="border: none; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);"
-        title="Crypto Payment Gateway">
-    </iframe>
-</div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Simple Store</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f7f6; text-align: center; padding: 50px; }
+        .iframe-box { 
+            max-width: 400px; 
+            margin: 0 auto; 
+            border: 4px solid #333; 
+            border-radius: 15px; 
+            overflow: hidden; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Buy Premium Membership - $10</h1>
+    <p>Complete your payment in the secure box below:</p>
+
+    <div class="iframe-box">
+        <iframe 
+            src="https://binance.digamber.in/" 
+            width="100%" 
+            height="550px" 
+            style="border: none;">
+        </iframe>
+    </div>
+
+</body>
+</html>
 ```
 
 Method 2: Direct API Integration (For Custom UIs)
