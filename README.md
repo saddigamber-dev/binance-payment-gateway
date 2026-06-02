@@ -22,3 +22,62 @@ DEBUG=False
 HOST=0.0.0.0
 PORT=10000
 ```
+
+💻 Integration Guide
+You can integrate this gateway into your main websites using either of the two methods below.
+
+Method 1: Easy Iframe Embed (Recommended for Quick Setup)
+The simplest way to use the gateway. This embeds the full UI (including the amount input, QR code generator, and expiration animations) directly into your website.
+Add this HTML snippet anywhere on your site:
+```
+<div class="crypto-checkout-container">
+    <iframe 
+        src="[https://binance.digamber.in/](https://binance.digamber.in/)" 
+        width="100%" 
+        height="550px" 
+        style="border: none; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);"
+        title="Crypto Payment Gateway">
+    </iframe>
+</div>
+```
+
+Method 2: Direct API Integration (For Custom UIs)
+If you want to build your own custom frontend and completely hide the fact that a 3rd party gateway is being used, you can fetch the API directly. CORS is fully enabled.
+Use this JavaScript example in your frontend to generate a payment:
+```
+async function generateCustomCryptoPayment(cartTotal) {
+    try {
+        const response = await fetch('[https://binance.digamber.in/api/orders](https://binance.digamber.in/api/orders)', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                amount: cartTotal, 
+                currency: "USDT", 
+                network: "BSC" 
+            })
+        });
+
+        const orderData = await response.json();
+
+        if (response.ok) {
+            console.log("Order Created Successfully:", orderData);
+            
+            // Map the data to your own custom HTML elements
+            // document.getElementById('my-qr-image').src = orderData.qr_code_base64;
+            // document.getElementById('my-address-text').innerText = orderData.deposit_address;
+            // document.getElementById('my-exact-amount').innerText = orderData.unique_amount;
+            
+            alert(`Please pay exactly ${orderData.unique_amount} USDT`);
+        } else {
+            console.error("Gateway Error:", orderData.detail);
+        }
+    } catch (error) {
+        console.error("Network error during payment generation:", error);
+    }
+}
+
+// Call the function with the amount to charge
+// generateCustomCryptoPayment(15);
+```
