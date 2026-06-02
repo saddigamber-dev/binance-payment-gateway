@@ -1,18 +1,18 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import Order, OrderStatus
 from app.services import BinanceService, TelegramService
 
 async def process_orders():
-    """Background loop to check Binance deposits and expire old orders."""
+    """Background loop to check Binance deposits, expire old orders, and clean DB."""
     while True:
         try:
             db: Session = SessionLocal()
             now = datetime.utcnow()
             
-            # 1. Expire old orders
+            # 1. Expire 20-minute old orders (Soft Delete)
             expired_orders = db.query(Order).filter(
                 Order.status == OrderStatus.PENDING,
                 Order.expires_at <= now
@@ -23,13 +23,19 @@ async def process_orders():
             if expired_orders:
                 db.commit()
 
-            # 2. Check deposits for active orders
+            # 2. Garbage Collection (Hard Delete orders older than 24 hours)
+            cleanup_threshold = now - timedelta(hours=24)
+            old_orders = db.query(Order).filter(Order.created_at < cleanup_threshold).all()
+            for old_order in old_orders:
+                db.delete(old_order)
+            if old_orders:
+                db.commit()
+
+            # 3. Check deposits for active PENDING orders
             active_orders = db.query(Order).filter(Order.status == OrderStatus.PENDING).all()
             if active_orders:
-                # Group by currency to minimize API calls
                 currencies = {o.currency for o in active_orders}
                 for currency in currencies:
-                    # Find the oldest active order to set Binance search window
                     oldest = min([o for o in active_orders if o.currency == currency], key=lambda x: x.created_at)
                     start_time_ms = int(oldest.created_at.timestamp() * 1000)
                     
@@ -39,10 +45,8 @@ async def process_orders():
                         dep_amount = float(deposit.get("amount", 0))
                         dep_address = deposit.get("address")
                         
-                        # Match unique exact amount and address
                         for order in active_orders:
                             if order.currency == currency and order.deposit_address == dep_address:
-                                # Float comparison tolerance
                                 if abs(order.unique_amount - dep_amount) < 0.00001:
                                     order.status = OrderStatus.CONFIRMED
                                     db.commit()
@@ -57,4 +61,4 @@ async def process_orders():
         finally:
             db.close()
             
-        await asyncio.sleep(30) # Poll every 30 seconds
+        await asyncio.sleep(30)
