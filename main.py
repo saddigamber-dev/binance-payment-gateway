@@ -28,49 +28,55 @@ async def startup_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend(request: Request):
-    #changes is here
     return templates.TemplateResponse(request=request, name="index.html")
-    
 
 @app.post("/api/orders", response_model=OrderResponse)
 async def create_order(order_req: OrderCreate, request: Request, db: Session = Depends(get_db)):
     client_ip = get_real_ip(request)
     now = datetime.utcnow()
     
-    # 1. Strict IP Rate Limiting (1 PENDING order per 20 mins)
+    # 1. Check if user already has an active pending order
     existing_order = db.query(Order).filter(
         Order.client_ip == client_ip,
         Order.status == OrderStatus.PENDING,
         Order.expires_at > now
     ).first()
     
+    # IF EXISTS: Return the SAME order to them with the QR code
     if existing_order:
-        raise HTTPException(
-            status_code=429, 
-            detail=f"You already have a pending order ({existing_order.id}). Please complete or wait for it to expire."
+        qr_base64 = generate_qr_base64(existing_order.deposit_address)
+        return OrderResponse(
+            id=existing_order.id,
+            unique_amount=existing_order.unique_amount,
+            currency=existing_order.currency,
+            network=existing_order.network,
+            status=existing_order.status,
+            deposit_address=existing_order.deposit_address,
+            qr_code_base64=qr_base64,
+            expires_at=existing_order.expires_at
         )
 
-    # 2. Generate unique tracking amount (adds between 0.001 and 0.999)
-    # This is CRITICAL because standard Binance accounts have 1 static address.
+    # 2. Generate unique tracking amount
     fraction = random.randint(1, 999) / 1000.0
     unique_amount = round(order_req.amount + fraction, 3)
 
-    # 3. Fetch Real Deposit Address from Binance
+    # 3. Fetch Real Deposit Address from Binance (Forcing USDT and BSC)
     try:
-        deposit_address = await BinanceService.get_deposit_address(order_req.currency, order_req.network)
+        deposit_address = await BinanceService.get_deposit_address("USDT", "BSC")
         if not deposit_address:
-            raise ValueError("Empty address returned")
+            raise ValueError("Empty address returned by Binance")
     except Exception as e:
-        raise HTTPException(status_code=503, detail="Payment gateway temporarily unavailable. (Binance API Error)")
+        print(f"BINANCE API ERROR: {str(e)}") # This will show in Render Logs if Binance blocks it
+        raise HTTPException(status_code=503, detail="Payment gateway temporarily unavailable. Check server logs.")
 
-    # 4. Create Order
+    # 4. Create New Order
     order_id = str(uuid.uuid4())[:8].upper()
     new_order = Order(
         id=order_id,
         base_amount=order_req.amount,
         unique_amount=unique_amount,
-        currency=order_req.currency,
-        network=order_req.network,
+        currency="USDT",
+        network="BSC",
         client_ip=client_ip,
         deposit_address=deposit_address
     )
@@ -83,7 +89,7 @@ async def create_order(order_req: OrderCreate, request: Request, db: Session = D
     await TelegramService.send_message(
         f"📝 <b>New Order Created</b>\n\n"
         f"<b>ID:</b> {new_order.id}\n"
-        f"<b>Amount Requested:</b> {new_order.unique_amount} {new_order.currency}\n"
+        f"<b>Amount Requested:</b> {new_order.unique_amount} USDT (BEP20)\n"
         f"<b>IP:</b> {client_ip}"
     )
 
@@ -106,3 +112,4 @@ async def get_order_status(order_id: str, db: Session = Depends(get_db)):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     return {"id": order.id, "status": order.status}
+    
