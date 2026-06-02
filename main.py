@@ -15,7 +15,7 @@ import base64
 
 load_dotenv()
 
-app = FastAPI(title="Binance Payment Gateway - V8 Final")
+app = FastAPI(title="Binance Payment Gateway - V9 Final")
 
 client = Client(os.getenv("BINANCE_API_KEY"), os.getenv("BINANCE_API_SECRET"))
 
@@ -31,7 +31,7 @@ class PaymentOrder(Base):
     amount = Column(Float)
     coin = Column(String)
     network = Column(String)
-    status = Column(String, default="pending")   # pending, confirmed, expired
+    status = Column(String, default="pending")
     wallet_address = Column(String)
     txid = Column(String, nullable=True)
     ip_address = Column(String)
@@ -69,12 +69,21 @@ def get_db():
 def get_client_ip(request: Request):
     return request.headers.get("X-Forwarded-For") or request.client.host
 
-# Strict Rate Limiting - Only 1 active order per IP
+# Auto Cleanup Old Expired Orders
+def cleanup_expired_orders(db):
+    db.query(PaymentOrder).filter(
+        PaymentOrder.status == "expired",
+        PaymentOrder.expires_at < datetime.utcnow() - timedelta(hours=1)
+    ).delete()
+    db.commit()
+
+# Strict Rate Limiting
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     if request.url.path == "/create-order":
         ip = get_client_ip(request)
         db = SessionLocal()
+        cleanup_expired_orders(db)
         active = db.query(PaymentOrder).filter(
             PaymentOrder.ip_address == ip,
             PaymentOrder.status == "pending",
@@ -82,7 +91,7 @@ async def rate_limit_middleware(request: Request, call_next):
         ).first()
         db.close()
         if active:
-            return JSONResponse(status_code=429, content={"error": "You already have an active pending order. Wait 20 minutes."})
+            return JSONResponse(status_code=429, content={"error": "You have an active order. Wait 20 minutes."})
     return await call_next(request)
 
 def generate_qr_base64(address: str):
@@ -97,26 +106,55 @@ def generate_qr_base64(address: str):
 @app.get("/", response_class=HTMLResponse)
 async def home():
     html = """
-    <html><head><title>Binance Payment Gateway</title>
+    <html>
+    <head><title>Binance Payment Gateway</title>
     <style>body{font-family:Arial;background:#0a0a0a;color:#0f0;padding:40px;text-align:center;}</style>
-    </head><body>
+    </head>
+    <body>
         <h1>🔥 Binance Payment Gateway</h1>
         <h2>binance.digamber.in</h2>
-        
-        <h3>Integration Example</h3>
-        <pre>
-fetch("https://binance.digamber.in/create-order?amount=50&coin=USDT&network=BEP20")
-.then(r => r.json()).then(data => {
-    console.log(data);
-    // Show data.qr_code as image
-});
+
+        <h3>Integration Example (Frontend)</h3>
+        <pre style="background:#1a1a1a;padding:15px;border-radius:8px;text-align:left;display:inline-block;">
+async function createPayment(amount) {
+  const res = await fetch("https://binance.digamber.in/create-order?amount=" + amount + "&coin=USDT&network=BEP20");
+  const data = await res.json();
+
+  if (data.success) {
+    console.log("Order Created:", data.order_id);
+    // Show QR Code
+    document.getElementById("qr").src = data.qr_code;
+    
+    // Start Polling for Payment Status
+    pollPaymentStatus(data.order_id);
+  }
+}
+
+async function pollPaymentStatus(order_id) {
+  const interval = setInterval(async () => {
+    const res = await fetch("https://binance.digamber.in/status/" + order_id);
+    const data = await res.json();
+
+    if (data.status === "confirmed") {
+      clearInterval(interval);
+      alert("🎉 Payment Successful! Product Unlocked.");
+      // Yahan apna product activate kar dena (unlock, download, etc.)
+      window.location.href = "/success?order=" + order_id;
+    } else if (data.status === "expired") {
+      clearInterval(interval);
+      alert("⏰ Order Expired");
+    }
+  }, 5000); // Har 5 second mein check
+}
         </pre>
 
+        <h3>Test Here</h3>
         <form action="/create-order" method="post">
             <input type="number" name="amount" value="10" required><br><br>
             <button type="submit">Create Order</button>
         </form>
-    </body></html>
+    </body>
+    </html>
     """
     return html
 
@@ -150,7 +188,7 @@ async def create_order(amount: float, coin: str = "USDT", network: str = "BEP20"
     db.commit()
     db.refresh(order)
 
-    await send_telegram(f"New Order Created → {order_id} | {amount} {coin}")
+    await send_telegram(f"New Order: {order_id} | {amount} {coin} | IP: {ip}")
 
     return {
         "success": True,
@@ -168,35 +206,29 @@ async def get_status(order_id: str, db=Depends(get_db)):
     if not order:
         raise HTTPException(404, "Order not found")
 
-    # Auto expire
+    cleanup_expired_orders(db)
+
     if order.status == "pending" and datetime.utcnow() > order.expires_at:
         order.status = "expired"
         db.commit()
 
-    # Manual Payment Check (Binance Transaction History)
+    # Auto Confirm Check
     if order.status == "pending":
         try:
-            deposits = client.get_deposit_history(coin=order.coin)
+            deposits = client.get_deposit_history(coin=order.coin, limit=50)
             for dep in deposits:
-                if (dep['address'].lower() == order.wallet_address.lower() and 
-                    float(dep['amount']) >= order.amount and 
-                    dep['status'] == 1):   # 1 = success
+                if (dep.get('address', '').lower() == order.wallet_address.lower() and 
+                    float(dep.get('amount', 0)) >= order.amount and 
+                    dep.get('status') == 1):
                     order.status = "confirmed"
-                    order.txid = dep['txId']
+                    order.txid = dep.get('txId')
                     db.commit()
-                    await send_telegram(f"🎉 Payment Confirmed!\nOrder: {order_id}\nAmount: {order.amount} {order.coin}\nTXID: {dep['txId']}")
+                    await send_telegram(f"🎉 Payment Confirmed!\nOrder: {order_id}\nTX: {order.txid}")
                     break
         except:
             pass
 
-    return {
-        "order_id": order.order_id,
-        "amount": order.amount,
-        "wallet_address": order.wallet_address,
-        "status": order.status,
-        "txid": order.txid,
-        "expires_at": order.expires_at.isoformat()
-    }
+    return order
 
 if __name__ == "__main__":
     import uvicorn
