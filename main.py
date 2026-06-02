@@ -1,3 +1,5 @@
+main.py
+
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
@@ -8,10 +10,15 @@ from binance.client import Client
 from jose import jwt
 from datetime import datetime, timedelta
 from collections import defaultdict
+from io import BytesIO
+
 import uuid
 import os
 import httpx
 import asyncio
+import qrcode
+import base64
+import random
 
 =========================
 
@@ -21,7 +28,7 @@ LOAD ENV
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "supersecret")
+SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_THIS_SECRET")
 ALGORITHM = "HS256"
 
 =========================
@@ -83,12 +90,14 @@ BINANCE
 client = Client(
 os.getenv("BINANCE_API_KEY"),
 os.getenv("BINANCE_API_SECRET"),
-requests_params={"timeout": 5}
+requests_params={
+"timeout": 5
+}
 )
 
 =========================
 
-RATE LIMIT STORAGE
+RATE LIMIT
 
 =========================
 
@@ -101,13 +110,16 @@ MODEL
 =========================
 
 class PaymentOrder(Base):
-tablename = "payment_orders"
+
+__tablename__ = "payment_orders"
 
 id = Column(Integer, primary_key=True, index=True)
 
 order_id = Column(String, unique=True, index=True)
 
 amount = Column(Float)
+
+display_amount = Column(Float)
 
 coin = Column(String)
 
@@ -131,16 +143,19 @@ Base.metadata.create_all(bind=engine)
 
 =========================
 
-DB DEPENDENCY
+DB
 
 =========================
 
 def get_db():
+
 db = SessionLocal()
+
 try:
-yield db
+    yield db
+
 finally:
-db.close()
+    db.close()
 
 =========================
 
@@ -149,29 +164,51 @@ HELPERS
 =========================
 
 def get_ip(request: Request):
+
 forwarded = request.headers.get("x-forwarded-for")
+
 if forwarded:
-return forwarded.split(",")[0]
+    return forwarded.split(",")[0]
+
 return request.client.host
 
 def cleanup_rate_limit():
+
 now = datetime.utcnow()
 
 for ip in list(RATE_LIMIT.keys()):
+
     RATE_LIMIT[ip] = [
         t for t in RATE_LIMIT[ip]
         if (now - t).seconds < 60
     ]
 
+def generate_secure_token(order_id: str):
+
+payload = {
+    "order_id": order_id,
+    "exp": datetime.utcnow() + timedelta(hours=1)
+}
+
+return jwt.encode(
+    payload,
+    SECRET_KEY,
+    algorithm=ALGORITHM
+)
+
 async def send_telegram(message: str):
+
 token = os.getenv("TELEGRAM_BOT_TOKEN")
+
 chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
 if not token or not chat_id:
     return
 
 try:
+
     async with httpx.AsyncClient(timeout=5) as http:
+
         await http.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
             json={
@@ -179,20 +216,38 @@ try:
                 "text": message
             }
         )
+
 except:
     pass
 
-def generate_secure_token(order_id: str):
-payload = {
-"order_id": order_id,
-"exp": datetime.utcnow() + timedelta(hours=1)
-}
+def generate_qr_base64(data: str):
 
-return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+qr = qrcode.QRCode(
+    version=1,
+    box_size=10,
+    border=5
+)
+
+qr.add_data(data)
+
+qr.make(fit=True)
+
+img = qr.make_image(
+    fill_color="black",
+    back_color="white"
+)
+
+buffer = BytesIO()
+
+img.save(buffer, format="PNG")
+
+return base64.b64encode(
+    buffer.getvalue()
+).decode()
 
 =========================
 
-MIDDLEWARE
+SECURITY MIDDLEWARE
 
 =========================
 
@@ -205,7 +260,10 @@ cleanup_rate_limit()
 
 RATE_LIMIT[ip].append(datetime.utcnow())
 
+# HARD RATE LIMIT
+
 if len(RATE_LIMIT[ip]) > 20:
+
     return ORJSONResponse(
         status_code=429,
         content={
@@ -224,9 +282,10 @@ HOME
 
 @app.get("/")
 async def home():
+
 return {
-"success": True,
-"message": "Binance Gateway Running"
+    "success": True,
+    "message": "Secure Binance Gateway Running"
 }
 
 =========================
@@ -246,7 +305,7 @@ db: Session = Depends(get_db)
 
 ip = get_ip(request)
 
-# Prevent duplicate pending orders
+# CHECK ACTIVE ORDER
 
 active = db.query(PaymentOrder).filter(
     PaymentOrder.ip_address == ip,
@@ -255,20 +314,24 @@ active = db.query(PaymentOrder).filter(
 ).first()
 
 if active:
+
     raise HTTPException(
         status_code=429,
         detail="You already have a pending order"
     )
 
-# Generate order ID
+# RANDOMIZE AMOUNT
+
+randomized_amount = round(
+    amount + random.uniform(0.001, 0.009),
+    3
+)
+
+# UNIQUE ORDER ID
 
 order_id = f"ORD-{uuid.uuid4().hex[:16]}"
 
-# Expiry
-
 expires_at = datetime.utcnow() + timedelta(minutes=20)
-
-# Get Binance wallet
 
 wallet_address = "UNAVAILABLE"
 
@@ -288,13 +351,23 @@ try:
     wallet_address = deposit_info["address"]
 
 except Exception as e:
+
     print(e)
+
+# GENERATE QR
+
+qr_code = generate_qr_base64(wallet_address)
+
+# JWT TOKEN
 
 secure_token = generate_secure_token(order_id)
 
+# SAVE ORDER
+
 order = PaymentOrder(
     order_id=order_id,
-    amount=amount,
+    amount=randomized_amount,
+    display_amount=amount,
     coin=coin,
     network=network,
     wallet_address=wallet_address,
@@ -304,26 +377,42 @@ order = PaymentOrder(
 )
 
 db.add(order)
+
 db.commit()
+
 db.refresh(order)
 
 asyncio.create_task(
+
     send_telegram(
-        f"🔥 New Order\\n\\n"
-        f"Order: {order_id}\\n"
-        f"Amount: {amount} {coin}\\n"
+        f"🔥 NEW ORDER\n\n"
+        f"Order: {order_id}\n"
+        f"Amount: {randomized_amount} {coin}\n"
         f"IP: {ip}"
     )
+
 )
 
 return {
+
     "success": True,
+
     "order_id": order_id,
-    "amount": amount,
+
+    "amount": randomized_amount,
+
+    "display_amount": amount,
+
     "coin": coin,
+
     "network": network,
+
     "wallet_address": wallet_address,
+
+    "qr_code": f"data:image/png;base64,{qr_code}",
+
     "expires_at": expires_at.isoformat(),
+
     "status": "pending"
 }
 
@@ -344,21 +433,24 @@ order = db.query(PaymentOrder).filter(
 ).first()
 
 if not order:
+
     raise HTTPException(
         status_code=404,
         detail="Order not found"
     )
 
-# Expire old orders
+# EXPIRE ORDER
 
 if (
     order.status == "pending"
     and datetime.utcnow() > order.expires_at
 ):
+
     order.status = "expired"
+
     db.commit()
 
-# Backend verification ONLY
+# VERIFY PAYMENT FROM BINANCE
 
 if order.status == "pending":
 
@@ -397,30 +489,41 @@ if order.status == "pending":
                 db.commit()
 
                 asyncio.create_task(
+
                     send_telegram(
-                        f"🎉 PAYMENT CONFIRMED\\n\\n"
-                        f"Order: {order.order_id}\\n"
+                        f"🎉 PAYMENT CONFIRMED\n\n"
+                        f"Order: {order.order_id}\n"
+                        f"Amount: {order.amount}\n"
                         f"TXID: {order.txid}"
                     )
+
                 )
 
                 break
 
     except Exception as e:
+
         print(e)
 
-# FRONTEND CANNOT FAKE THIS
-
 return {
+
     "success": True,
+
     "order_id": order.order_id,
+
     "status": order.status,
-    "verified": order.status == "confirmed",
+
+    "verified": (
+        order.status == "confirmed"
+    ),
+
     "secure_token": (
         order.secure_token
         if order.status == "confirmed"
         else None
-    )
+    ),
+
+    "txid": order.txid
 }
 
 =========================
@@ -441,8 +544,11 @@ try:
     )
 
     return {
+
         "success": True,
+
         "valid": True,
+
         "order_id": payload["order_id"]
     }
 
