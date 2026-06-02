@@ -1,6 +1,6 @@
 # Binance Payment Gateway
 
--# A production-level personal cryptocurrency payment gateway leveraging FastAPI, PostgreSQL, and Binance API.
+> A production-level personal cryptocurrency payment gateway leveraging FastAPI, PostgreSQL, and Binance API.
 
 ## Features
 - Strict 20-minute expiry windows with active background cleanup.
