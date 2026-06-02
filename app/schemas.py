@@ -1,12 +1,11 @@
 from pydantic import BaseModel
-from typing import Optional
 from datetime import datetime
 from app.models import OrderStatus
 
 class OrderCreate(BaseModel):
     amount: float
     currency: str = "USDT"
-    network: str = "TRX" # e.g., TRX for Tron TRC20
+    network: str = "BSC" # Hardcoded to BEP20
 
 class OrderResponse(BaseModel):
     id: str
