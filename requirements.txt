@@ -10,9 +10,6 @@ passlib[bcrypt]
 httpx
 pydantic
 qrcode[pil]
-
-Added security/performance packages
-
 orjson
 gunicorn
 python-multipart
