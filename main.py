@@ -106,10 +106,21 @@ async def create_order(order_req: OrderCreate, request: Request, db: Session = D
         expires_at=new_order.expires_at
     )
 
-@app.get("/api/orders/{order_id}")
+@app.get("/api/orders/{order_id}", response_model=OrderResponse)
 async def get_order_status(order_id: str, db: Session = Depends(get_db)):
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    return {"id": order.id, "status": order.status}
+        
+    qr_base64 = generate_qr_base64(order.deposit_address)
     
+    return OrderResponse(
+        id=order.id,
+        unique_amount=order.unique_amount,
+        currency=order.currency,
+        network=order.network,
+        status=order.status,
+        deposit_address=order.deposit_address,
+        qr_code_base64=qr_base64,
+        expires_at=order.expires_at
+    )
