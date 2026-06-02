@@ -17,7 +17,6 @@
         .status-badge { display: inline-block; padding: 5px 10px; border-radius: 4px; font-weight: bold; margin-top: 10px;}
         .network-badge { background: #eee; padding: 8px; border-radius: 4px; margin-bottom: 15px; font-weight: bold; color: #555; }
         
-        /* 🔴 EXPIRED ANIMATION CSS */
         .expired-anim-container {
             height: 200px;
             display: flex;
@@ -38,7 +37,6 @@
             font-weight: 900;
             letter-spacing: 2px;
             transform: rotate(-15deg);
-            /* Bounces in like a stamp, then pulses forever */
             animation: stampIn 0.4s cubic-bezier(0.25, 1.5, 0.5, 1) forwards, pulseRed 2s infinite 0.5s;
         }
         
@@ -82,6 +80,13 @@
 <script>
     let pollInterval;
 
+    function parseUTCDate(dateString) {
+        if (!dateString.endsWith('Z')) {
+            dateString += 'Z'; 
+        }
+        return new Date(dateString);
+    }
+
     document.addEventListener("DOMContentLoaded", async () => {
         const activeOrderId = localStorage.getItem('active_order_id');
         if (activeOrderId) {
@@ -89,7 +94,7 @@
                 const res = await fetch(`/api/orders/${activeOrderId}`);
                 if (res.ok) {
                     const data = await res.json();
-                    if (data.status === "PENDING" && new Date(data.expires_at) > new Date()) {
+                    if (data.status === "PENDING" && parseUTCDate(data.expires_at) > new Date()) {
                         showPaymentScreen(data);
                     } else {
                         localStorage.removeItem('active_order_id');
@@ -124,7 +129,6 @@
 
             localStorage.setItem('active_order_id', data.id);
             
-            // Reset UI states in case they try again after an expiry
             document.getElementById('qr-code').classList.remove('hidden');
             document.getElementById('expired-wrapper').classList.add('hidden');
             
@@ -143,16 +147,14 @@
         document.getElementById('qr-code').src = data.qr_code_base64;
         document.getElementById('address-text').innerText = data.deposit_address;
         
-        startTimer(new Date(data.expires_at));
+        startTimer(parseUTCDate(data.expires_at));
         pollStatus(data.id);
     }
 
     function triggerExpiredUI() {
-        // Hide QR Code and show the Stamp Animation
         document.getElementById('qr-code').classList.add('hidden');
         document.getElementById('expired-wrapper').classList.remove('hidden');
         
-        // Update texts
         document.getElementById('countdown').innerText = "EXPIRED";
         document.getElementById('status').innerText = "EXPIRED";
         document.getElementById('status').style.background = "#d9534f";
@@ -189,7 +191,7 @@
                 document.getElementById('status').style.background = "#5cb85c";
                 document.getElementById('status').style.color = "white";
                 document.getElementById('countdown').innerText = "Payment Complete";
-                document.getElementById('qr-code').classList.add('hidden'); // Optional: hide QR on success too
+                document.getElementById('qr-code').classList.add('hidden'); 
                 localStorage.removeItem('active_order_id');
             } else if (data.status === "EXPIRED") {
                 triggerExpiredUI();
