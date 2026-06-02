@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Checkout</title>
+    <style>
+        body { font-family: -apple-system, system-ui, sans-serif; background: #f4f7f6; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .checkout-box { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); text-align: center; width: 350px; }
+        input, button { width: 100%; padding: 12px; margin: 10px 0; box-sizing: border-box; border-radius: 6px; border: 1px solid #ddd; }
+        button { background: #f3ba2f; border: none; color: black; font-weight: bold; cursor: pointer; }
+        button:hover { background: #e0a800; }
+        .hidden { display: none; }
+        .qr-img { width: 200px; height: 200px; margin: 15px auto; }
+        .timer { font-size: 1.5em; color: #d9534f; font-weight: bold; }
+        .copy-addr { font-size: 0.8em; background: #eee; padding: 5px; word-break: break-all; border-radius: 4px;}
+        .status-badge { display: inline-block; padding: 5px 10px; border-radius: 4px; font-weight: bold; margin-top: 10px;}
+    </style>
+</head>
+<body>
+
+<div class="checkout-box" id="step1">
+    <h2>Pay with Crypto</h2>
+    <input type="number" id="amount" placeholder="Enter amount (e.g. 10)" step="1" min="1">
+    <select id="network">
+        <option value="TRX">USDT (TRC20)</option>
+        <option value="BSC">USDT (BEP20)</option>
+    </select>
+    <button onclick="createOrder()">Generate Payment</button>
+    <p id="error-msg" style="color:red; font-size:14px;"></p>
+</div>
+
+<div class="checkout-box hidden" id="step2">
+    <h2>Awaiting Payment</h2>
+    <p>Please send exactly:</p>
+    <h1 id="exact-amount">0.00</h1>
+    <p id="currency-label">USDT</p>
+    <img id="qr-code" class="qr-img" src="" alt="QR Code">
+    <p class="copy-addr" id="address-text"></p>
+    <p>Time remaining: <span class="timer" id="countdown">20:00</span></p>
+    <div id="status" class="status-badge" style="background:#ffc107; color:#000;">PENDING</div>
+</div>
+
+<script>
+    let pollInterval;
+
+    async function createOrder() {
+        const amount = document.getElementById('amount').value;
+        const network = document.getElementById('network').value;
+        const errorMsg = document.getElementById('error-msg');
+        errorMsg.innerText = "Processing...";
+
+        try {
+            const res = await fetch('/api/orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ amount: parseFloat(amount), currency: "USDT", network: network })
+            });
+            const data = await res.json();
+            
+            if (!res.ok) throw new Error(data.detail || "Error generating order");
+
+            document.getElementById('step1').classList.add('hidden');
+            document.getElementById('step2').classList.remove('hidden');
+            
+            document.getElementById('exact-amount').innerText = data.unique_amount;
+            document.getElementById('currency-label').innerText = `USDT (${network})`;
+            document.getElementById('qr-code').src = data.qr_code_base64;
+            document.getElementById('address-text').innerText = data.deposit_address;
+            
+            startTimer(new Date(data.expires_at));
+            pollStatus(data.id);
+        } catch (err) {
+            errorMsg.innerText = err.message;
+        }
+    }
+
+    function startTimer(expireDate) {
+        const countdownEl = document.getElementById('countdown');
+        const timer = setInterval(() => {
+            const now = new Date();
+            const diff = Math.floor((expireDate - now) / 1000);
+            if (diff <= 0) {
+                clearInterval(timer);
+                countdownEl.innerText = "EXPIRED";
+                document.getElementById('status').innerText = "EXPIRED";
+                document.getElementById('status').style.background = "#d9534f";
+                document.getElementById('status').style.color = "white";
+                clearInterval(pollInterval);
+            } else {
+                const m = Math.floor(diff / 60).toString().padStart(2, '0');
+                const s = (diff % 60).toString().padStart(2, '0');
+                countdownEl.innerText = `${m}:${s}`;
+            }
+        }, 1000);
+    }
+
+    function pollStatus(orderId) {
+        pollInterval = setInterval(async () => {
+            const res = await fetch(`/api/orders/${orderId}`);
+            const data = await res.json();
+            if (data.status === "CONFIRMED") {
+                clearInterval(pollInterval);
+                document.getElementById('status').innerText = "PAID - SUCCESS";
+                document.getElementById('status').style.background = "#5cb85c";
+                document.getElementById('status').style.color = "white";
+                document.getElementById('countdown').innerText = "Payment Complete";
+                // Redirect or execute success logic here
+            } else if (data.status === "EXPIRED") {
+                clearInterval(pollInterval);
+            }
+        }, 10000); // Check every 10 seconds
+    }
+</script>
+
+</body>
+</html>
