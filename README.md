@@ -157,4 +157,4 @@ async def buy_vip(ctx):
                     return
                 elif status_data["status"] == "EXPIRED":
                     await ctx.send(f"⏳ {ctx.author.mention}, your order `{order_id}` has expired.")
-                    API
+                    return
