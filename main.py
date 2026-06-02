@@ -1,26 +1,21 @@
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.sql import func
 import os
 from dotenv import load_dotenv
 from binance.client import Client
 import httpx
 from datetime import datetime, timedelta
-import logging
 from fastapi.responses import JSONResponse
 
 load_dotenv()
 
-app = FastAPI(title="Binance Payment Gateway - Production V2")
+app = FastAPI(title="Binance Payment Gateway - V3")
 
-# ====================== BINANCE CLIENT ======================
-client = Client(
-    os.getenv("BINANCE_API_KEY"), 
-    os.getenv("BINANCE_API_SECRET")
-)
+# Binance Client
+client = Client(os.getenv("BINANCE_API_KEY"), os.getenv("BINANCE_API_SECRET"))
 
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -35,7 +30,7 @@ class PaymentOrder(Base):
     amount = Column(Float)
     coin = Column(String)
     network = Column(String)
-    status = Column(String, default="pending")  # pending, confirmed, expired
+    status = Column(String, default="pending")
     wallet_address = Column(String)
     txid = Column(String, nullable=True)
     ip_address = Column(String)
@@ -58,10 +53,8 @@ async def send_telegram(message: str):
     if token and chat_id:
         try:
             async with httpx.AsyncClient() as http:
-                await http.post(
-                    f"https://api.telegram.org/bot{token}/sendMessage",
-                    json={"chat_id": chat_id, "text": f"🔥 {message}"}
-                )
+                await http.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={"chat_id": chat_id, "text": f"🔥 {message}"})
         except:
             pass
 
@@ -75,11 +68,11 @@ def get_db():
 def get_client_ip(request: Request):
     return request.headers.get("X-Forwarded-For") or request.client.host
 
-# Rate Limiting (5 orders per IP per 10 minutes)
+# Rate Limiting Middleware
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    ip = get_client_ip(request)
     if request.url.path == "/create-order":
+        ip = get_client_ip(request)
         db = SessionLocal()
         ten_min_ago = datetime.utcnow() - timedelta(minutes=10)
         count = db.query(PaymentOrder).filter(
@@ -88,25 +81,23 @@ async def rate_limit_middleware(request: Request, call_next):
         ).count()
         db.close()
         if count >= 5:
-            return JSONResponse(status_code=429, content={"error": "Rate limit exceeded. Try after some time."})
+            return JSONResponse(status_code=429, content={"error": "Rate limit: Max 5 orders per 10 min"})
     return await call_next(request)
 
 @app.post("/create-order")
 async def create_order(amount: float, coin: str = "USDT", network: str = "BEP20", request: Request = None, db=Depends(get_db)):
     try:
         ip = get_client_ip(request)
-        
-        # Real Deposit Address Generate (Binance)
-        try:
-            deposit_info = client.get_deposit_address(coin=coin, network=network)
-            wallet_address = deposit_info.get('address')
-            memo = deposit_info.get('tag') or deposit_info.get('memo')
-        except:
-            wallet_address = "Error_fetching_address"
-            memo = None
-
         order_id = f"ORDER_{int(datetime.utcnow().timestamp())}"
         expires_at = datetime.utcnow() + timedelta(minutes=20)
+
+        # Real Deposit Address
+        wallet_address = "0xError_Fetching_Address_Try_Again"
+        try:
+            deposit_info = client.get_deposit_address(coin=coin, network=network)
+            wallet_address = deposit_info.get('address', wallet_address)
+        except Exception as binance_err:
+            await send_telegram(f"Binance Address Error: {str(binance_err)}")
 
         order = PaymentOrder(
             order_id=order_id,
@@ -123,14 +114,7 @@ async def create_order(amount: float, coin: str = "USDT", network: str = "BEP20"
         db.commit()
         db.refresh(order)
 
-        await send_telegram(
-            f"✅ New Order\n"
-            f"OrderID: {order_id}\n"
-            f"Amount: {amount} {coin}\n"
-            f"Network: {network}\n"
-            f"Address: {wallet_address}\n"
-            f"Expires: 20 min"
-        )
+        await send_telegram(f"✅ New Order\nID: {order_id}\nAmount: {amount} {coin}\nNetwork: {network}\nAddress: {wallet_address[:20]}...")
 
         return {
             "success": True,
@@ -139,13 +123,13 @@ async def create_order(amount: float, coin: str = "USDT", network: str = "BEP20"
             "coin": coin,
             "network": network,
             "wallet_address": wallet_address,
-            "memo": memo,
             "expires_at": expires_at.isoformat(),
             "status": "pending"
         }
+
     except Exception as e:
-        await send_telegram(f"❌ Create Order Error: {str(e)}")
-        raise HTTPException(500, str(e))
+        await send_telegram(f"❌ Critical Error in create-order: {str(e)}")
+        raise HTTPException(500, f"Server Error: {str(e)}")
 
 @app.get("/status/{order_id}")
 async def get_status(order_id: str, db=Depends(get_db)):
@@ -153,26 +137,21 @@ async def get_status(order_id: str, db=Depends(get_db)):
     if not order:
         raise HTTPException(404, "Order not found")
     
-    # Auto expire check
     if order.status == "pending" and datetime.utcnow() > order.expires_at:
         order.status = "expired"
         db.commit()
-        await send_telegram(f"⏰ Order Expired: {order_id}")
     
     return {
         "order_id": order.order_id,
         "amount": order.amount,
-        "coin": order.coin,
-        "network": order.network,
         "wallet_address": order.wallet_address,
         "status": order.status,
-        "txid": order.txid,
         "expires_at": order.expires_at.isoformat()
     }
 
 @app.get("/")
 async def home():
-    return {"message": "Binance Payment Gateway V2 Live 🔥 | Real Addresses + Auto Expiry"}
+    return {"message": "Binance Payment Gateway V3 Live 🔥 | Fixed Error Handling"}
 
 if __name__ == "__main__":
     import uvicorn
