@@ -12,12 +12,10 @@ from fastapi.responses import JSONResponse
 
 load_dotenv()
 
-app = FastAPI(title="Binance Payment Gateway - V4 Fixed")
+app = FastAPI(title="Binance Payment Gateway - V5 Fixed")
 
-# Binance Client
 client = Client(os.getenv("BINANCE_API_KEY"), os.getenv("BINANCE_API_SECRET"))
 
-# Database
 DATABASE_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -90,14 +88,19 @@ async def create_order(amount: float, coin: str = "USDT", network: str = "BEP20"
         order_id = f"ORDER_{int(datetime.utcnow().timestamp())}"
         expires_at = datetime.utcnow() + timedelta(minutes=20)
 
-        wallet_address = "0xError_Fetching_Address"
+        wallet_address = "0xTemp_Wallet_Address_Please_Use_Real"
 
         try:
-            deposit_info = client.get_deposit_address(coin=coin, network=network)
+            # Fixed Network Mapping
+            api_network = network
+            if network.upper() == "BEP20":
+                api_network = "BSC"
+
+            deposit_info = client.get_deposit_address(coin=coin, network=api_network)
             wallet_address = deposit_info.get('address')
-            await send_telegram(f"✅ Real Address Fetched for {coin}-{network}")
+            await send_telegram(f"✅ Real Address Fetched Successfully for {coin} on {network}")
         except Exception as e:
-            await send_telegram(f"⚠️ Binance Address Fetch Failed: {str(e)[:100]}")
+            await send_telegram(f"⚠️ Binance Address Fetch Failed: {str(e)[:150]}")
 
         order = PaymentOrder(
             order_id=order_id,
@@ -114,7 +117,7 @@ async def create_order(amount: float, coin: str = "USDT", network: str = "BEP20"
         db.commit()
         db.refresh(order)
 
-        await send_telegram(f"🆕 New Order\nID: {order_id}\nAmount: {amount} {coin}\nAddress: {wallet_address[:30]}...")
+        await send_telegram(f"🆕 New Order Created\nID: {order_id}\nAmount: {amount} {coin}\nNetwork: {network}\nAddress: {wallet_address[:25]}...")
 
         return {
             "success": True,
@@ -141,11 +144,19 @@ async def get_status(order_id: str, db=Depends(get_db)):
         order.status = "expired"
         db.commit()
     
-    return order
+    return {
+        "order_id": order.order_id,
+        "amount": order.amount,
+        "coin": order.coin,
+        "network": order.network,
+        "wallet_address": order.wallet_address,
+        "status": order.status,
+        "expires_at": order.expires_at.isoformat()
+    }
 
 @app.get("/")
 async def home():
-    return {"message": "Binance Payment Gateway V4 Live 🔥"}
+    return {"message": "Binance Payment Gateway V5 Live 🔥 | BEP20 Fixed"}
 
 if __name__ == "__main__":
     import uvicorn
